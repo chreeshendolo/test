@@ -22,6 +22,18 @@ Data.enviorments = {
 	}
 }
 
+Data.doodads = {
+	mushroom: {
+		name: "Mushroom",
+		fillColor: "rgb( 120, 80, 60 )",
+		sprite: "mushroom",
+		portrait: "mushroom",
+		strokeColor: "rgb( 80, 80, 80 )",
+		affiliation: "neutral",
+		terrain: "move"
+	}
+}
+
 Data.entities = {
 	Rye: {
 		name: "Rye",

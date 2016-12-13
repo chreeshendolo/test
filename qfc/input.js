@@ -9,6 +9,15 @@ var Input = function() {
 	};
 	
 	this.keyState = {};
+	
+	this.AImouseState = {
+		left: {
+			down: false,
+			pos: { x: 0, y: 0 }
+		}
+	};
+	
+	this.AIkeyState = {};
 };
 
 var proto = Input.prototype;

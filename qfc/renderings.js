@@ -196,6 +196,32 @@ Renderings.corpse = function( obj ) {
 	this.ents.push( temp )
 }
 
+Renderings.doodad = function( obj ) {
+
+	var	w = obj.w,
+		h = obj.h,
+		x = obj.x - w * .5,
+		y = obj.y - h * .5;
+	
+	var temp = {
+		w: w,
+		h: h,
+		x: x,
+		y: y,
+	}
+	
+	if ( obj.sprite ) {
+		temp.spriteData = {
+			sprite: obj.sprite,
+			index: obj.index || 0,
+			w: 16,
+			h: 16
+		}
+	}
+	
+	this.ents.push( temp )
+}
+
 
 
 Renderings.portrait = function( obj ) {

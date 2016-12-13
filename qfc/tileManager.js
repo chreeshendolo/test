@@ -46,6 +46,9 @@ proto.getWalkMap = function() {
 					value = 2;
 				}
 			}
+			// else if ( tile.occupied == "corpse" ) {
+				// value = 3;
+			// }
 			row.push( value );
 		}
 		walkMap.push( row );
@@ -87,7 +90,6 @@ proto.getTilesInRange = function( CRObj, range ) {
 }
 
 proto.markTiles = function( tileArray, mode ) {
-
 	for ( var i = tileArray.length - 1; i >= 0; --i ) {
 		var tile = tileArray[ i ];
 		if ( mode == "attack" ) {

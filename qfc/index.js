@@ -609,8 +609,164 @@ turns.nextTurn = function() {
 	tl = tileManager.getTile( CR );
 	
 	this.current.myTurn( tl );
+	if ( this.current.AI ) AI( this.current );
 	this.next = true;
 }
+
+
+var globalInput = true;
+var AI = function( ent ) {
+	globalInput = false;
+	input.AImouseState.left.down = true;
+	input.AImouseState.left.pos = { x: ent.x, y: ent.y };
+	var tiles = tileManager.getTilesInRange( ent.getCR(), ent.actionPool );
+	var foes = [];
+	for ( var occupied in tiles.occupied ) {
+		var tile = tiles.occupied[ occupied ];
+		var cr = creatureManager.getCreature( tile.getXY() );
+
+		var isFoe = Relationships.getRelationship( Data.entities[ cr.ent ].affiliation, Data.entities[ ent.ent ].affiliation );
+
+		if ( isFoe == "foe" ) {
+			if ( !creatureManager.getCreature( tile.getXY() ).dead ) foes.push( tile );
+		}
+	}
+
+	var walkMap = tileManager.getWalkMap();
+	var paths = [];
+	for ( var i = foes.length - 1; i >= 0; --i ) {
+		var tileCR = ent.getCR();
+		var dest = foes[ i ];
+		for ( var j = 7; j >= 0; --j ) {
+			var adjacent;
+			var orthogonal = false;
+			var value = 0;
+			if ( j == 7 ) { 
+				adjacent = { col: dest.col - 1, row: dest.row - 1 };
+			}
+			if ( j == 6 ) { 
+				adjacent = { col: dest.col, row: dest.row - 1 };
+				value = 3;
+				orthogonal = true;
+			}
+			if ( j == 5 ) { 
+				adjacent = { col: dest.col + 1, row: dest.row - 1 };
+			}
+			if ( j == 4 ) { 
+				adjacent = { col: dest.col + 1, row: dest.row };
+				value = 3;
+				orthogonal = true;
+			}
+			if ( j == 3 ) { 
+				adjacent = { col: dest.col - 1, row: dest.row };
+				value = 3;
+				orthogonal = true;
+			}
+			if ( j == 2 ) { 
+				adjacent = { col: dest.col - 1, row: dest.row + 1 };
+			}
+			if ( j == 1 ) { 
+				adjacent = { col: dest.col, row: dest.row + 1 };
+				value = 3;
+				orthogonal = true;
+			}
+			if ( j == 0 ) { 
+				adjacent = { col: dest.col + 1, row: dest.row + 1 };
+			}
+			
+			var terrain = Data.enviorments[ tileManager.getTile( adjacent ).env ].terrain;
+
+			if ( terrain != "impass" ) {
+				var path = AStar.findPath( walkMap, tileCR.col, tileCR.row, adjacent.col, adjacent.row, [ 0 ] );
+				if ( tileCR.col == adjacent.col && tileCR.row == adjacent.row && orthogonal ) {
+					path = [ { '0': tileCR.col, '1': tileCR.row } ];
+					value = 10;
+					paths.push( { target: dest, path: path, value: value } );
+				}
+				else if ( path && path.length <= ent.actionPool + 1 ) {
+					paths.push( { target: dest, path: path, value: value } );
+				}
+			}
+		}
+	}
+	
+	var lowest = -1;
+	for ( var j = paths.length - 1; j >= 0; --j ) {
+		var path = paths[ j ];
+		if ( lowest == -1 ) {
+			lowest = path;
+		}
+		else if ( path.path.length < lowest.path.length ) {
+			lowest = path;
+		}
+	}
+	
+	if ( lowest == -1 ) lowest = paths[ 0 ];
+	
+	lowest.value += 2;
+	
+	var value = 0;
+	for ( var j = paths.length - 1; j >= 0; --j ) {
+		var path = paths[ j ];
+		if ( value == 0 ) {
+			value = path;
+		}
+		else if ( path.value > value.value ) {
+			value = path;
+		}
+	}
+	
+	if ( value ) lowest = value;
+	
+	
+	var ctl = lowest.path[ lowest.path.length - 1 ];
+
+	var AIMove = {
+		XY: tileManager.getTile( { col: ctl[ '0' ], row: ctl[ '1' ] } ).getXY(),
+		creature: ent,
+		target: lowest.target.getXY()
+	}
+	
+	tween.createTween( AIMove, {}, 1000, "circIn", function() {
+
+		var match = false;
+		if ( AIMove.XY.x == AIMove.creature.x && AIMove.XY.y == AIMove.creature.y ) {
+			match = true;
+		}
+		
+		if ( match ) {
+			input.AImouseState.left.down = true;
+			input.AImouseState.left.pos = { x: AIMove.target.x, y: AIMove.target.y };
+			tween.createTween( AIMove, {}, 1000, "circIn", function() {
+				globalInput = true;
+				turns.nextTurn();
+			} );
+		}
+		else { 
+			input.AImouseState.left.down = true;
+			input.AImouseState.left.pos = { x: AIMove.XY.x, y: AIMove.XY.y };
+			tween.createTween( AIMove, {}, 4000, "circIn", function() {
+				var active = AIMove.creature.equipted.active;
+				var weapData = AIMove.creature.casting ? Data.spells[ AIMove.creature.casting ] : Data.weapons[ AIMove.creature.equipted[ active ] ];
+				if ( AIMove.creature.actionPool >= weapData.cost ) {
+					input.AImouseState.left.down = true;
+					input.AImouseState.left.pos = { x: AIMove.target.x, y: AIMove.target.y };
+					tween.createTween( AIMove, {}, 1000, "circIn", function() {
+						globalInput = true;
+						turns.nextTurn();
+					} );
+				}
+				else {
+					tween.createTween( AIMove, {}, 500, "circIn", function() {
+						globalInput = true;
+						turns.nextTurn();
+					} );
+				}
+			} );
+		}
+	} );
+}
+
 
 
 
@@ -620,6 +776,7 @@ var keyboardState = {
 }
 
 keyboardState.update = function() {
+	if ( !globalInput ) return;
 	var l = input.keyState[ 37 ],
 		u = input.keyState[ 38 ],
 		r = input.keyState[ 39 ],
@@ -696,40 +853,6 @@ keyboardState.update = function() {
 	// }
 }
 
-
-var markRanges = function( creature ) {
-	var tileCR = creature.getCR();
-	var active = creature.equipted.active;
-	var weapData = creature.casting ? Data.spells[ creature.casting ] : Data.weapons[ creature.equipted[ active ] ];
-	if ( weapData ) {
-		var newMoveRange = tileManager.getTilesInRange( tileCR, creature.actionPool );
-		var newWeapRange = tileManager.getTilesInRange( tileCR, weapData.range );
-		
-		var walkMap = tileManager.getWalkMap();
-		
-		for ( var i = newMoveRange.tiles.length - 1; i >= 0; --i ) {
-			var dest = newMoveRange.tiles[ i ];
-			var path = AStar.findPath( walkMap, tileCR.col, tileCR.row, dest.col, dest.row, [ 0 ] );
-			if ( path ) {
-				path.shift();
-				if ( path.length > creature.actionPool ) {
-					newMoveRange.tiles.splice( i, 1 );
-				}
-			}
-			else {
-				newMoveRange.tiles.splice( i, 1 );
-			}
-		}
-		
-		var sight = los( tileCR, weapData.range );
-		
-		if ( creature.actionPool ) tileManager.markTiles( newMoveRange.tiles );
-		if ( creature.actionPool >= weapData.cost + creature.tempCost[ active ] ) tileManager.markTiles( sight.tiles, "attack" );
-		if ( creature.actionPool >= weapData.cost + creature.tempCost[ active ] ) creatureManager.markOccupied( creature, sight.occupied );
-		var newLootRange = tileManager.getTilesInRange( tileCR, 1  );
-		if ( creature.actionPool >= 1 ) creatureManager.markOccupied( creature, newLootRange.occupied, "loot" );
-	}
-}
 
 // var lines = [];
 
@@ -841,7 +964,40 @@ var los = function( CRObj, range ) {
     // Return the result
     return coordinatesArray;
   }
-
+  
+var markRanges = function( creature ) {
+	var tileCR = creature.getCR();
+	var active = creature.equipted.active;
+	var weapData = creature.casting ? Data.spells[ creature.casting ] : Data.weapons[ creature.equipted[ active ] ];
+	if ( weapData ) {
+		var newMoveRange = tileManager.getTilesInRange( tileCR, creature.actionPool );
+		var newWeapRange = tileManager.getTilesInRange( tileCR, weapData.range );
+		
+		var walkMap = tileManager.getWalkMap();
+		
+		for ( var i = newMoveRange.tiles.length - 1; i >= 0; --i ) {
+			var dest = newMoveRange.tiles[ i ];
+			var path = AStar.findPath( walkMap, tileCR.col, tileCR.row, dest.col, dest.row, [ 0 ] );
+			if ( path ) {
+				path.shift();
+				if ( path.length > creature.actionPool ) {
+					newMoveRange.tiles.splice( i, 1 );
+				}
+			}
+			else {
+				newMoveRange.tiles.splice( i, 1 );
+			}
+		}
+		
+		var sight = los( tileCR, weapData.range );
+		
+		if ( creature.actionPool ) tileManager.markTiles( newMoveRange.tiles );
+		if ( creature.actionPool >= weapData.cost + creature.tempCost[ active ] ) tileManager.markTiles( sight.tiles, "attack" );
+		if ( creature.actionPool >= weapData.cost + creature.tempCost[ active ] ) creatureManager.markOccupied( creature, sight.occupied );
+		var newLootRange = tileManager.getTilesInRange( tileCR, 1  );
+		if ( creature.actionPool >= 1 ) creatureManager.markOccupied( creature, newLootRange.occupied, "loot" );
+	}
+}
 
 var unmarkRanges = function( creature ) {
 	var tileCR = creature.getCR();
@@ -865,10 +1021,19 @@ var clickState = {
 }
 
 clickState.update = function() {
-	if ( input.mouseState.left.down ) {
-		
-		var mouseX = input.mouseState.left.pos.x,
-			mouseY = input.mouseState.left.pos.y,
+	if ( !globalInput && input.AImouseState.left.down ) {
+		runClick( "AImouseState" );
+	}
+	else if ( globalInput && input.mouseState.left.down ) {
+		runClick( "mouseState" );
+	}
+}
+
+
+var runClick = function( control ) {
+	
+	var mouseX = input[ control ].left.pos.x,
+			mouseY = input[ control ].left.pos.y,
 			tiles = ( mouseX < viewPort.w && mouseY < viewPort.h ),
 			sideDisp = ( mouseX > sideBar.x && mouseX < sideBar.x + sideBar.w
 				&& mouseY > sideBar.y && mouseY < sideBar.y + sideBar.h ),
@@ -884,234 +1049,238 @@ clickState.update = function() {
 			nextTurn = ( mouseX > log.screen.x && mouseX < log.screen.x + log.screen.w
 						&& mouseY > log.screen.y && mouseY < log.screen.y + log.screen.h );
 		
-		if ( nextTurn ) turns.nextTurn();
+	if ( nextTurn ) turns.nextTurn();
+	
+	if ( tiles && !invScreen && !spellsScreen && !lootScreen ) {
+		screen.spells.screenDown();
+		screen.loot.screenDown();
+		screen.inventory.screenDown();
+		var newTileCR = Helper.XYtoCR( mouseX, mouseY, tileManager.size ),
+			oldTileCR = clickState.clicks[ 0 ],
+			newTileXY = Helper.CRtoXY( newTileCR.col, newTileCR.row ),
+			oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row );
+
+		var tiles = tileManager.clicked( newTileCR, oldTileCR );
 		
-		if ( tiles && !invScreen && !spellsScreen && !lootScreen ) {
-			screen.spells.screenDown();
-			screen.loot.screenDown();
-			screen.inventory.screenDown();
-			var newTileCR = Helper.XYtoCR( mouseX, mouseY, tileManager.size ),
-				oldTileCR = clickState.clicks[ 0 ],
-				newTileXY = Helper.CRtoXY( newTileCR.col, newTileCR.row ),
-				oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row );
+		var newTile = tiles.newTile;
+		var oldTile = tiles.oldTile;
 
-			var tiles = tileManager.clicked( newTileCR, oldTileCR );
-			
-			var newTile = tiles.newTile;
-			var oldTile = tiles.oldTile;
+		var creatures = creatureManager.clicked( newTileXY, oldTileXY );
+		
+		var newCreature = creatures.newCreature;
+		var oldCreature = creatures.oldCreature;
+					
+		if ( oldCreature ) {
+			var active = oldCreature.equipted.active;
+			var oldWeapData = oldCreature.casting ? Data.spells[ oldCreature.casting ] : Data.weapons[ oldCreature.equipted[ active ] ];
 
-			var creatures = creatureManager.clicked( newTileXY, oldTileXY );
-			
-			var newCreature = creatures.newCreature;
-			var oldCreature = creatures.oldCreature;
-						
-			if ( oldCreature ) {
-				var active = oldCreature.equipted.active;
-				var oldWeapData = oldCreature.casting ? Data.spells[ oldCreature.casting ] : Data.weapons[ oldCreature.equipted[ active ] ];
-
-				if ( oldWeapData ) {
-					screen.spells.up = false;
-					if ( oldCreature.turn ) {
-						if ( newTile.available == "move" || newTile.available == "both" ) {
+			if ( oldWeapData ) {
+				screen.spells.up = false;
+				if ( oldCreature.turn ) {
+					if ( newTile.available == "move" || newTile.available == "both" ) {
+						unmarkRanges( oldCreature );
+						oldCreature.queueMove( oldTile, newTile );
+					}
+					
+					if ( newTile.available == "loot" ) { 
+						screen.inventory.up = false;
+						screen.spells.up = false;
+						screen.loot.toggleScreen();
+					}
+					
+					if ( !oldWeapData.target || oldWeapData.target == "foe" ) {
+						if ( newTile.available == "foe" ) {
 							unmarkRanges( oldCreature );
-							oldCreature.queueMove( oldTile, newTile );
-						}
-						
-						if ( newTile.available == "loot" ) { 
-							screen.inventory.up = false;
-							screen.spells.up = false;
-							screen.loot.toggleScreen();
-						}
-						
-						if ( !oldWeapData.target || oldWeapData.target == "foe" ) {
-							if ( newTile.available == "foe" ) {
-								unmarkRanges( oldCreature );
-								
-								var	weapDam = Helper.rng( oldWeapData.damage.min, oldWeapData.damage.max ),
-									oldEntData = Data.entities[ oldCreature.ent ],
-									newEntData = Data.entities[ newCreature.ent ];
-								
-								if ( oldEntData.active ) {
-									weapDam = ability.active[ oldEntData.active ]( oldCreature, newCreature, weapDam );
-								}
-								
-								// if ( oldWeapData.active ) {
-									// weapDam = ability.active[ oldWeapData.active ]( oldCreature, newCreature, weapDam, oldWeapData );
-								// }
-								
-								for ( var i = oldCreature.aBuffs.length - 1; i >= 0; --i ) {
-									var buff = oldCreature.aBuffs[ i ],
-										buffData = Data.spells[ buff ];
+							
+							var	weapDam = Helper.rng( oldWeapData.damage.min, oldWeapData.damage.max ),
+								oldEntData = Data.entities[ oldCreature.ent ],
+								newEntData = Data.entities[ newCreature.ent ];
+							
+							if ( oldEntData.active ) {
+								weapDam = ability.active[ oldEntData.active ]( oldCreature, newCreature, weapDam );
+							}
+							
+							// if ( oldWeapData.active ) {
+								// weapDam = ability.active[ oldWeapData.active ]( oldCreature, newCreature, weapDam, oldWeapData );
+							// }
+							
+							for ( var i = oldCreature.aBuffs.length - 1; i >= 0; --i ) {
+								var buff = oldCreature.aBuffs[ i ],
+									buffData = Data.spells[ buff ];
 
-									weapDam = ability.active[ buffData.active ]( oldCreature, newCreature, weapDam, buffData );
-									oldCreature.aBuffs.splice( i, 1 );
-								}
-								
-								if ( newTile.col < oldTile.col ) { oldCreature.facing = "l"; newCreature.facing = "r"; }
-								if ( newTile.row < oldTile.row ) { oldCreature.facing = "u"; newCreature.facing = "d"; }
-								if ( newTile.col > oldTile.col ) { oldCreature.facing = "r"; newCreature.facing = "l"; }
-								if ( newTile.row > oldTile.row ) { oldCreature.facing = "d"; newCreature.facing = "u"; }
-								
-								if ( oldWeapData.range > 1 ) {
-									effect.projectile( { damage: weapDam, tile: newTile, weapData: oldWeapData, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: oldCreature.x, y: oldCreature.y, target: newCreature } );
-								}
-								else {
-									effect.stab( { facing: oldCreature.facing, weapData: oldWeapData, damage: weapDam, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
-								}
-								
-								newCreature = false;
-								
-								var tempCostSlot = oldCreature.equipted.active;
-								var tempCost = oldCreature.tempCost[ tempCostSlot ];
-								oldCreature.actionPool -= oldWeapData.cost + tempCost;
-								if ( oldWeapData.hands ) {
-									if ( oldWeapData.hands < 2 ) {
-										oldCreature.tempCost[ tempCostSlot ] += 1;
-									}
-									else {
-										oldCreature.tempCost.lHand += 1;
-										oldCreature.tempCost.rHand += 1;
-									}
-								}
-								else {
+								weapDam = ability.active[ buffData.active ]( oldCreature, newCreature, weapDam, buffData );
+								oldCreature.aBuffs.splice( i, 1 );
+							}
+							
+							if ( newTile.col < oldTile.col ) { oldCreature.facing = "l"; newCreature.facing = "r"; }
+							if ( newTile.row < oldTile.row ) { oldCreature.facing = "u"; newCreature.facing = "d"; }
+							if ( newTile.col > oldTile.col ) { oldCreature.facing = "r"; newCreature.facing = "l"; }
+							if ( newTile.row > oldTile.row ) { oldCreature.facing = "d"; newCreature.facing = "u"; }
+							
+							if ( oldWeapData.range > 1 ) {
+								effect.projectile( { damage: weapDam, tile: newTile, weapData: oldWeapData, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: oldCreature.x, y: oldCreature.y, target: newCreature } );
+							}
+							else {
+								effect.stab( { facing: oldCreature.facing, weapData: oldWeapData, damage: weapDam, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
+							}
+							
+							newCreature = false;
+							
+							var tempCostSlot = oldCreature.equipted.active;
+							var tempCost = oldCreature.tempCost[ tempCostSlot ];
+							oldCreature.actionPool -= oldWeapData.cost + tempCost;
+							if ( oldWeapData.hands ) {
+								if ( oldWeapData.hands < 2 ) {
 									oldCreature.tempCost[ tempCostSlot ] += 1;
 								}
+								else {
+									oldCreature.tempCost.lHand += 1;
+									oldCreature.tempCost.rHand += 1;
+								}
+							}
+							else {
+								oldCreature.tempCost[ tempCostSlot ] += 1;
 							}
 						}
-						else if ( oldWeapData.target == "friend" ) {
-							if ( oldCreature.actionPool >= oldWeapData.cost ) {
-								if ( newTile.available == "friend" ) {
-									unmarkRanges( oldCreature );
-									oldCreature.actionPool -= oldWeapData.cost;
-									if ( oldWeapData.active && !oldWeapData.aBuff ) {
-										var damage = ability.active[ oldWeapData.active ]( oldCreature, newCreature, oldWeapData );
-									}
-									if ( damage ) {
-										effect.heal( { facing: oldCreature.facing, damage: damage, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
-									}
-									if ( oldWeapData.aBuff ) {
-										var buff = oldWeapData.aBuff;
+					}
+					else if ( oldWeapData.target == "friend" ) {
+						if ( oldCreature.actionPool >= oldWeapData.cost ) {
+							if ( newTile.available == "friend" ) {
+								unmarkRanges( oldCreature );
+								oldCreature.actionPool -= oldWeapData.cost;
+								if ( oldWeapData.active && !oldWeapData.aBuff ) {
+									var damage = ability.active[ oldWeapData.active ]( oldCreature, newCreature, oldWeapData );
+								}
+								if ( damage ) {
+									effect.heal( { facing: oldCreature.facing, damage: damage, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
+								}
+								if ( oldWeapData.aBuff ) {
+									var buff = oldWeapData.aBuff;
 
-										//var buff = ability.buff[ oldWeapData.buff ]( oldCreature, newCreature, oldWeapData );
-										effect.buff( { facing: oldCreature.facing, aBuff: buff, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
-									}
-									if ( oldWeapData.rBuff ) {
-										var buff = oldWeapData.rBuff;
+									//var buff = ability.buff[ oldWeapData.buff ]( oldCreature, newCreature, oldWeapData );
+									effect.buff( { facing: oldCreature.facing, aBuff: buff, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
+								}
+								if ( oldWeapData.rBuff ) {
+									var buff = oldWeapData.rBuff;
 
-										//var buff = ability.buff[ oldWeapData.buff ]( oldCreature, newCreature, oldWeapData );
-										effect.buff( { facing: oldCreature.facing, rBuff: buff, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
-									}
-									if ( oldWeapData.tBuff ) {
-										var buff = oldWeapData.tBuff;
+									//var buff = ability.buff[ oldWeapData.buff ]( oldCreature, newCreature, oldWeapData );
+									effect.buff( { facing: oldCreature.facing, rBuff: buff, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
+								}
+								if ( oldWeapData.tBuff ) {
+									var buff = oldWeapData.tBuff;
 
-										//var buff = ability.buff[ oldWeapData.buff ]( oldCreature, newCreature, oldWeapData );
-										effect.buff( { facing: oldCreature.facing, rBuff: buff, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
-									}
+									//var buff = ability.buff[ oldWeapData.buff ]( oldCreature, newCreature, oldWeapData );
+									effect.buff( { facing: oldCreature.facing, rBuff: buff, tile: newTile, cycle: 3, last: 3, sprite: oldWeapData.sprite, x: newCreature.x, y: newCreature.y, target: newCreature } );
 								}
 							}
 						}
 					}
-					unmarkRanges( oldCreature );
-					oldCreature.casting = false;
 				}
+				unmarkRanges( oldCreature );
+				oldCreature.casting = false;
 			}
-			
-			if ( newCreature ) {
-				if ( newCreature.selected ) {
-					markRanges( newCreature );
-				}
-				else {
-					unmarkRanges( newCreature );
-				}
-			}
-
-			
-			if( clickState.clicks.unshift( newTileCR ) > clickState.limit ) clickState.clicks.pop();
 		}
 		
-		if ( sideDisp ) {
-			var newTileCR = Helper.XYtoCR( mouseX, mouseY, tileManager.size ),
-				oldTileCR = clickState.clicks[ 0 ],
-				newTileXY = Helper.CRtoXY( newTileCR.col, newTileCR.row ),
-				oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row );
-
-			var newCreature = creatureManager.getCreature( newTileXY );
-			var oldCreature = creatureManager.getCreature( oldTileXY );
-
-			if ( oldCreature.selected ) {
-				var lHand = sideBar.slots.lHand;
-				if ( mouseX > lHand.x && mouseX < lHand.x + lHand.w
-					&& mouseY > lHand.y && mouseY < lHand.y + lHand.h ) {
-					if ( oldCreature.equipted.lHand ) {
-						unmarkRanges( oldCreature );
-						oldCreature.equipted.active = "lHand";
-						markRanges( oldCreature );
-					}
-				}
-				var rHand = sideBar.slots.rHand;
-				if ( mouseX > rHand.x && mouseX < rHand.x + rHand.w
-					&& mouseY > rHand.y && mouseY < rHand.y + rHand.h ) {
-					if ( oldCreature.equipted.rHand ) {
-						unmarkRanges( oldCreature );
-						oldCreature.equipted.active = "rHand";
-						markRanges( oldCreature );
-					}
-				}
+		if ( newCreature ) {
+			if ( newCreature.selected ) {
+				markRanges( newCreature );
 			}
-			
-			var invButton = sideBar.slots.inventoryButton;
-			if ( mouseX > invButton.x && mouseX < invButton.x + invButton.w
-				&& mouseY > invButton.y && mouseY < invButton.y + invButton.h ) {
-				screen.loot.up = false;
-				screen.spells.up = false;
-				screen.inventory.toggleScreen();
+			else {
+				unmarkRanges( newCreature );
 			}
-			
-			var spellButton = sideBar.slots.spellBookButton;
-			if ( mouseX > spellButton.x && mouseX < spellButton.x + spellButton.w
-				&& mouseY > spellButton.y && mouseY < spellButton.y + spellButton.h ) {
-				var oldTileCR = clickState.clicks[ 0 ],
-					oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row ),
-					creature = creatureManager.getCreature( oldTileXY );
-				if ( creature && Data.entities[ creature.ent ].spells ) {
-					screen.loot.up = false;
-					screen.inventory.up = false;
-					screen.spells.toggleScreen();
-				}
-			}
-			
 		}
-		
-		if ( invScreen ) {
-			var oldTileCR = clickState.clicks[ 0 ],
-				oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row ),
-				creature = creatureManager.getCreature( oldTileXY );
 
-			screen.inventory.selectInv( { x: mouseX, y: mouseY }, creature );
-		}
 		
-		if ( lootScreen ) {
-			var newTileCR = clickState.clicks[ 0 ],
-				newTileXY = Helper.CRtoXY( newTileCR.col, newTileCR.row ),
-				newCreature = creatureManager.getCreature( newTileXY );
-			var oldTileCR = clickState.clicks[ 1 ],
-				oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row ),
-				oldCreature = creatureManager.getCreature( oldTileXY );
-
-			screen.loot.selectInv( { x: mouseX, y: mouseY }, newCreature, oldCreature );
-		}
-				
-		if ( spellsScreen ) {
-			var oldTileCR = clickState.clicks[ 0 ],
-				oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row ),
-				creature = creatureManager.getCreature( oldTileXY );
-			
-			screen.spells.selectSpell( { x: mouseX, y: mouseY }, creature );
-		}
-		
-		input.mouseState.left.down = false;
+		if( clickState.clicks.unshift( newTileCR ) > clickState.limit ) clickState.clicks.pop();
 	}
+	
+	if ( sideDisp ) {
+		var newTileCR = Helper.XYtoCR( mouseX, mouseY, tileManager.size ),
+			oldTileCR = clickState.clicks[ 0 ],
+			newTileXY = Helper.CRtoXY( newTileCR.col, newTileCR.row ),
+			oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row );
+
+		var newCreature = creatureManager.getCreature( newTileXY );
+		var oldCreature = creatureManager.getCreature( oldTileXY );
+
+		if ( oldCreature.selected ) {
+			var lHand = sideBar.slots.lHand;
+			if ( mouseX > lHand.x && mouseX < lHand.x + lHand.w
+				&& mouseY > lHand.y && mouseY < lHand.y + lHand.h ) {
+				if ( oldCreature.equipted.lHand ) {
+					unmarkRanges( oldCreature );
+					oldCreature.equipted.active = "lHand";
+					markRanges( oldCreature );
+				}
+			}
+			var rHand = sideBar.slots.rHand;
+			if ( mouseX > rHand.x && mouseX < rHand.x + rHand.w
+				&& mouseY > rHand.y && mouseY < rHand.y + rHand.h ) {
+				if ( oldCreature.equipted.rHand ) {
+					unmarkRanges( oldCreature );
+					oldCreature.equipted.active = "rHand";
+					markRanges( oldCreature );
+				}
+			}
+		}
+		
+		var invButton = sideBar.slots.inventoryButton;
+		if ( mouseX > invButton.x && mouseX < invButton.x + invButton.w
+			&& mouseY > invButton.y && mouseY < invButton.y + invButton.h ) {
+			screen.loot.up = false;
+			screen.spells.up = false;
+			screen.inventory.toggleScreen();
+		}
+		
+		var spellButton = sideBar.slots.spellBookButton;
+		if ( mouseX > spellButton.x && mouseX < spellButton.x + spellButton.w
+			&& mouseY > spellButton.y && mouseY < spellButton.y + spellButton.h ) {
+			var oldTileCR = clickState.clicks[ 0 ],
+				oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row ),
+				creature = creatureManager.getCreature( oldTileXY );
+			if ( creature && Data.entities[ creature.ent ].spells ) {
+				screen.loot.up = false;
+				screen.inventory.up = false;
+				screen.spells.toggleScreen();
+			}
+		}
+		
+	}
+	
+	if ( invScreen ) {
+		var oldTileCR = clickState.clicks[ 0 ],
+			oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row ),
+			creature = creatureManager.getCreature( oldTileXY );
+
+		screen.inventory.selectInv( { x: mouseX, y: mouseY }, creature );
+	}
+	
+	if ( lootScreen ) {
+		var newTileCR = clickState.clicks[ 0 ],
+			newTileXY = Helper.CRtoXY( newTileCR.col, newTileCR.row ),
+			newCreature = creatureManager.getCreature( newTileXY );
+		var oldTileCR = clickState.clicks[ 1 ],
+			oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row ),
+			oldCreature = creatureManager.getCreature( oldTileXY );
+
+		screen.loot.selectInv( { x: mouseX, y: mouseY }, newCreature, oldCreature );
+	}
+			
+	if ( spellsScreen ) {
+		var oldTileCR = clickState.clicks[ 0 ],
+			oldTileXY = Helper.CRtoXY( oldTileCR.col, oldTileCR.row ),
+			creature = creatureManager.getCreature( oldTileXY );
+		
+		screen.spells.selectSpell( { x: mouseX, y: mouseY }, creature );
+	}
+	
+	input[ control ].left.down = false;
 }
+
+
+
+
+
 
 var lvl1 = function() {
 	var a = creatureManager.spawnCreature( tileManager.getTile( { col: 1, row: 1 } ), "Archibald", { rHand: "staff", torso: "robe", tail: "candle" } );
@@ -1124,8 +1293,15 @@ var lvl1 = function() {
 	
 	var ant = creatureManager.spawnCreature( tileManager.getTile( { col: 2, row: 6 } ), "Mandiblar", { head: "mandibles", active: "head", torso: "chitin" } );
 	ant.inventory.push( "mask" );
-	creatureManager.spawnCreature( tileManager.getTile( { col: 5, row: 6 } ), "Mandiblar", { head: "mandibles", active: "head", torso: "chitin" } );
-	creatureManager.spawnCreature( tileManager.getTile( { col: 6, row: 6 } ), "Mandiblar", { head: "mandibles", active: "head", torso: "chitin" } );
+	ant.AI = true;
+	ant.vision = 8;
+	ant = creatureManager.spawnCreature( tileManager.getTile( { col: 5, row: 6 } ), "Mandiblar", { head: "mandibles", active: "head", torso: "chitin" } );
+	ant.AI = true;
+	ant.vision = 8;
+	
+	ant = creatureManager.spawnCreature( tileManager.getTile( { col: 6, row: 6 } ), "Mandiblar", { head: "mandibles", active: "head", torso: "chitin" } );
+	ant.AI = true;
+	ant.vision = 8;
 	
 	var tile = tileManager.getTile( { col: 1, row: 3 } );
 	tile.env = "wall";
@@ -1172,6 +1348,8 @@ var lvl1 = function() {
 	tile.env = "wall";
 	var tile = tileManager.getTile( { col: 21, row: 11 } );
 	tile.env = "wall";
+	var tile = tileManager.getTile( { col: 16, row: 11 } );
+	tile.doodad = "mushroom";
 }
 
 lvl1();
@@ -1235,6 +1413,22 @@ var loop = function( t ) {
 		var tl = tileManager.tiles[ i ];
 		
 		Renderings.env( tl );
+		
+		if ( tl.doodad ) {
+			
+			var xy = tl.getXY();
+			
+			
+			var temp = {
+				x: xy.x,
+				y: xy.y,
+				w: 16,
+				h: 16,
+				sprite: tl.doodad
+			}
+			
+			Renderings.doodad( temp );
+		}
 		
 		if ( tl.selected && !tl.occupied ) {
 			
@@ -2320,12 +2514,14 @@ var sprites = [
 	"move.png",
 	"attack.png",
 	"rye.png",
-	"myTurn.png"
+	"myTurn.png",
+	"mushroom.png"
 ];
 
 sprite.setSpriteFolder( "sprites/" );
 
 sprite.queuePath( sprites );
+log.toLog( "Press shift, or tap this log box to begin." );
 sprite.loadSprites( loop );
 
 //requestAnimationFrame( loop );

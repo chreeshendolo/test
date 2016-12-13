@@ -154,12 +154,12 @@ cprot.move = function() {
 	this.cycle = 7;	
 	
 	tween.createTween( this, { x: newTileXY.x, y: newTileXY.y, cycle: 0 }, 500, "quadInOut", function( target ) {
-		
+			var control = this.AI ? "AImouseState" : "mouseState";
 			if ( target.moveQueue.length <= 0 ) {
 				var CR = target.getCR();
-				input.mouseState.left.down = true;
-				input.mouseState.left.pos.x = target.x;
-				input.mouseState.left.pos.y = target.y;
+				input[ control ].left.down = true;
+				input[ control ].left.pos.x = target.x;
+				input[ control ].left.pos.y = target.y;
 				log.toLog( Data.entities[ target.ent ].name + " moved to " + CR.col + ", " + CR.row );
 			}
 			else {
@@ -338,6 +338,7 @@ cprot.myTurn = function( tl ) {
 			}
 		}
 	}
+	
 }
 
 cprot.endTurn = function( tl ) {
