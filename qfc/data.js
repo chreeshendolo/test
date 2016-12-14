@@ -75,7 +75,7 @@ Data.entities = {
 		affiliation: "friend"
 	},
 	Urial: {
-		name: "Urial",
+		name: "Spaghetti",
 		actives: [ "rHand", "lHand" ],
 		fillColor: "rgb( 60, 80, 80 )",
 		offset: 2,
